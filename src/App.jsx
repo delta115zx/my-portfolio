@@ -1,15 +1,21 @@
 import { useState, useEffect, useRef } from "react";
+import io from "socket.io-client";
 
-const NAV_ITEMS = ["about", "skills", "project", "troubleshooting", "contact"];
-const NAV_LABELS = { about: "소개", skills: "기술", project: "프로젝트", troubleshooting: "문제해결", contact: "연락처" };
+// 학원 패턴 그대로: 컴포넌트 밖에서 소켓 인스턴스 생성
+// 서버 미배포 시 연결 실패해도 UI는 정상 동작 (badge만 숨겨짐)
+const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || "";
+const socket = SOCKET_URL ? io(SOCKET_URL, { reconnectionAttempts: 3, timeout: 4000 }) : null;
+
+const NAV_ITEMS = ["about", "skills", "project", "troubleshooting", "draw", "contact"];
+const NAV_LABELS = { about: "소개", skills: "기술", project: "프로젝트", troubleshooting: "문제해결", draw: "드로잉", contact: "연락처" };
 
 const SKILLS = [
-  { cat: "AI / Azure", items: ["Azure OpenAI", "Azure AI Search", "Semantic Kernel", "Azure ML", "MS AI-900"] },
-  { cat: "Backend", items: ["Python 3.12", "FastAPI", "Node.js", "REST API", "JWT"] },
-  { cat: "Frontend", items: ["React 19", "Vite", "Tailwind CSS", "Redux", "JavaScript"] },
-  { cat: "Database", items: ["Azure PostgreSQL", "Azure Cosmos DB", "OracleDB", "MongoDB"] },
+  { cat: "AI / Azure", items: ["Azure OpenAI", "Azure AI Search", "Semantic Kernel", "MCP", "AgentGroupChat", "Azure ML", "MS AI-900"] },
+  { cat: "Backend", items: ["Python 3.12", "FastAPI", "Flask", "Node.js", "REST API", "JWT"] },
+  { cat: "Frontend", items: ["React 19", "Vite", "Tailwind CSS", "Redux", "JavaScript", "Socket.IO"] },
+  { cat: "Database", items: ["Azure PostgreSQL", "Azure Cosmos DB", "OracleDB", "MongoDB", "ChromaDB"] },
   { cat: "Infra / Tools", items: ["Azure Container Apps", "Azure Storage", "Linux", "Docker"] },
-  { cat: "Data", items: ["NumPy", "Pandas", "Matplotlib", "OpenLayers", "Chart.js"] },
+  { cat: "Data / ML", items: ["NumPy", "Pandas", "Matplotlib", "Seaborn", "scikit-learn", "PyTorch", "KoNLPy", "OpenLayers", "Chart.js"] },
 ];
 
 const TROUBLES = [
@@ -32,12 +38,141 @@ const TROUBLES = [
   {
     id: "03",
     title: "법령 벡터 검색 정확도 개선",
-    problem: "법령 질의에 대한 일반 LLM 응답의 부정확성 문제. 할루시네이션으로 잘못된 법령 안내 위험",
-    solution: "Azure AI Search로 식품위생법·근로기준법 등 10개 법령 ~1,288개 조항을 인덱싱. HNSW + cosine 유사도 기반 하이브리드 검색 구현",
+    problem: "법령 질문에 대한 일반 LLM 응답의 부정확성 문제. 할루시네이션으로 잘못된 법령 안내 위험",
+    solution: "Azure AI Search로 식품위생법·근로기준법 등 10개 법령 ~1,288개 조항을 인덱싱. HNSW + cosine 유사도 기반 하이브리드 검색 구현 (벡터 + BM25 + 시맨틱 리랭킹)",
     result: "법령 관련 질의 정확도 향상, 실제 조항 인용 응답 제공",
     stack: ["Azure AI Search", "text-embedding-3-large", "RAG"],
   },
 ];
+
+// 학원 패턴 적용: useEffect에서 socket.on 등록, cleanup에서 socket.off
+function LiveVisitorBadge() {
+  const [count, setCount] = useState(null);
+
+  useEffect(() => {
+    if (!socket) return;
+
+    socket.on("visitor_count", (n) => setCount(n));
+    socket.on("connect_error", () => setCount(null));
+
+    return () => {
+      socket.off("visitor_count");
+      socket.off("connect_error");
+    };
+  }, []);
+
+  if (count === null) return null;
+  return <span style={styles.badge}>● 지금 {count}명 방문 중</span>;
+}
+
+// web/Dec08_5 드로잉 패턴 + web/Dec08_4 채팅 패턴 적용
+// Canvas 마우스좌표를 socket.emit("xy") → 서버 브로드캐스트 → 다른 방문자 캔버스에 반영
+function DrawingBoard() {
+  const canvasRef = useRef(null);
+  const drawMode = useRef(false);
+  const lastPos = useRef({ x: 0, y: 0 });
+  const [connected, setConnected] = useState(false);
+  const [onlineCount, setOnlineCount] = useState(0);
+
+  useEffect(() => {
+    if (!socket) return;
+
+    const canvas = canvasRef.current;
+    const pen = canvas.getContext("2d");
+    pen.strokeStyle = "#7ee8c8";
+    pen.lineWidth = 2;
+    pen.lineCap = "round";
+
+    // 학원 Dec08_5 패턴: socket.on("xy2") 로 상대방 드로잉 수신
+    socket.on("xy2", ({ a, b, c, d }) => {
+      pen.beginPath();
+      pen.moveTo(c, d);
+      pen.lineTo(a, b);
+      pen.closePath();
+      pen.stroke();
+    });
+
+    socket.on("draw_clear", () => {
+      pen.clearRect(0, 0, canvas.width, canvas.height);
+    });
+
+    socket.on("connect", () => setConnected(true));
+    socket.on("disconnect", () => setConnected(false));
+    socket.on("visitor_count", (n) => setOnlineCount(n));
+
+    return () => {
+      socket.off("xy2");
+      socket.off("draw_clear");
+      socket.off("connect");
+      socket.off("disconnect");
+      socket.off("visitor_count");
+    };
+  }, []);
+
+  const getPos = (e, canvas) => {
+    const rect = canvas.getBoundingClientRect();
+    const src = e.touches ? e.touches[0] : e;
+    return { x: src.clientX - rect.left, y: src.clientY - rect.top };
+  };
+
+  const startDraw = (e) => {
+    drawMode.current = true;
+    lastPos.current = getPos(e, canvasRef.current);
+  };
+
+  const draw = (e) => {
+    if (!drawMode.current) return;
+    e.preventDefault();
+    const canvas = canvasRef.current;
+    const pen = canvas.getContext("2d");
+    const { x: a, y: b } = getPos(e, canvas);
+    const { x: c, y: d } = lastPos.current;
+
+    pen.beginPath();
+    pen.moveTo(c, d);
+    pen.lineTo(a, b);
+    pen.closePath();
+    pen.stroke();
+
+    // 학원 Dec08_5 패턴: socket.emit("xy") 로 좌표 전송
+    if (socket) socket.emit("xy", { a, b, c, d });
+
+    lastPos.current = { x: a, y: b };
+  };
+
+  const stopDraw = () => { drawMode.current = false; };
+
+  const clearCanvas = () => {
+    const pen = canvasRef.current.getContext("2d");
+    pen.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
+    if (socket) socket.emit("draw_clear");
+  };
+
+  return (
+    <div style={styles.drawWrap}>
+      <div style={styles.drawHeader}>
+        <span style={styles.drawStatus}>
+          {socket ? (connected ? <><span style={styles.onlineDot} />실시간 연결됨 · {onlineCount}명 접속 중</> : "연결 중...") : "소켓 서버 미연결 (로컬 드로잉만 가능)"}
+        </span>
+        <button style={styles.clearBtn} onClick={clearCanvas}>전체 지우기</button>
+      </div>
+      <canvas
+        ref={canvasRef}
+        width={700}
+        height={320}
+        style={styles.canvas}
+        onMouseDown={startDraw}
+        onMouseMove={draw}
+        onMouseUp={stopDraw}
+        onMouseLeave={stopDraw}
+        onTouchStart={startDraw}
+        onTouchMove={draw}
+        onTouchEnd={stopDraw}
+      />
+      <p style={styles.drawHint}>← 캔버스에 자유롭게 그려보세요. 연결된 다른 방문자에게 실시간으로 공유됩니다.</p>
+    </div>
+  );
+}
 
 export default function Portfolio() {
   const [active, setActive] = useState("about");
@@ -96,6 +231,7 @@ export default function Portfolio() {
             {["SOHOBI Live", "~80명 실사용자", "MS AI-900"].map((b) => (
               <span key={b} style={styles.badge}>{b}</span>
             ))}
+            <LiveVisitorBadge />
           </div>
           <a href="mailto:delta115zx@naver.com" style={styles.heroBtn} className="fadeUp d5">연락하기</a>
         </div>
@@ -140,14 +276,14 @@ export default function Portfolio() {
               <h2 style={styles.projTitle}>SOHOBI</h2>
               <p style={styles.projTagline}>멀티에이전트 기반 F&B 창업 도우미</p>
             </div>
-            <a href="https://sohobi.net" target="_blank" rel="noreferrer" style={styles.projLink}>sohobi.net ↗</a>
+            <a href="https://sohobi.net" target="_blank" rel="noreferrer" style={styles.projLink}>sohobi.net →</a>
           </div>
           <p style={styles.projDesc}>
             F&B 업종 창업자를 위한 AI 도우미 서비스. 행정 절차 안내, 법령 조회, 재무 시뮬레이션,
             상권 분석을 멀티에이전트 구조로 통합하여 창업에 필요한 모든 정보를 한 곳에서 제공합니다.
           </p>
           <div style={styles.projStats}>
-            {[["기간", "2026.02 – 04"], ["팀 유형", "팀 프로젝트"], ["실사용자", "~80명"], ["담당", "AI/RAG · 상권분석"]].map(([k, v]) => (
+            {[["기간", "2026.02 → 04"], ["팀 유형", "팀 프로젝트"], ["실사용자", "~80명"], ["담당", "AI/RAG · 상권분석"]].map(([k, v]) => (
               <div key={k} style={styles.stat}>
                 <span style={styles.statKey}>{k}</span>
                 <span style={styles.statVal}>{v}</span>
@@ -162,8 +298,8 @@ export default function Portfolio() {
               ))}
             </div>
             <div style={styles.archFlow} className="mt8">
-              {["OpenLayers", "←", "상권 에이전트", "←", "Azure PostgreSQL"].map((n, i) => (
-                <span key={i} style={n === "←" ? styles.arrow : styles.archNode}>{n}</span>
+              {["OpenLayers", "→", "상권 에이전트", "→", "Azure PostgreSQL"].map((n, i) => (
+                <span key={i} style={n === "→" ? styles.arrow : styles.archNode}>{n}</span>
               ))}
             </div>
           </div>
@@ -173,7 +309,7 @@ export default function Portfolio() {
               {["행정 RAG: 창업 절차 문서 Azure AI Search 인덱싱 및 파이프라인 설계",
                 "상권 분석 에이전트: PostgreSQL 상권 데이터 쿼리 및 업종별 분석 로직",
                 "지도 연동: OpenLayers + 상권 분석 에이전트 결과 시각화",
-                "에이전트 프레임워크 전환: Copilot Studio → Semantic Kernel",
+                "에이전트 프레임워크 전환: Copilot Studio → Semantic Kernel (AgentGroupChat)",
                 "성능 최적화: 응답 시간 40초 → 10초대 단축"].map((r) => (
                   <li key={r} style={styles.roleItem}><span style={styles.roleBullet}>▸</span>{r}</li>
                 ))}
@@ -217,9 +353,15 @@ export default function Portfolio() {
         </div>
       </section>
 
+      {/* DRAWING BOARD */}
+      <section ref={(el) => (sectionRefs.current.draw = el)} style={styles.section}>
+        <SectionTitle num="04" title="실시간 드로잉" sub="Live Drawing" />
+        <DrawingBoard />
+      </section>
+
       {/* CONTACT */}
       <section ref={(el) => (sectionRefs.current.contact = el)} style={{ ...styles.section, ...styles.contactSection }}>
-        <SectionTitle num="04" title="연락처" sub="Contact" />
+        <SectionTitle num="05" title="연락처" sub="Contact" />
         <div style={styles.contactGrid}>
           {[
             { label: "Email", value: "delta115zx@naver.com", href: "mailto:delta115zx@naver.com" },
@@ -257,7 +399,6 @@ const styles = {
   root: { fontFamily: "'Noto Sans KR', 'DM Sans', sans-serif", background: "#0a0a0e", color: "#fff", minHeight: "100vh", overflowX: "hidden" },
   nav: { position: "fixed", top: 0, left: 0, right: 0, zIndex: 100, display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 5%", height: 64, backdropFilter: "blur(12px)", transition: "all .3s" },
   navLogo: { fontFamily: "'DM Serif Display', serif", fontSize: 22, fontWeight: 700, color: "#fff", letterSpacing: -1 },
-  navDot: { display: "none" },
   navLinks: { display: "flex", gap: 4 },
   navBtn: { background: "none", border: "none", cursor: "pointer", fontSize: 13, fontWeight: 500, padding: "6px 12px", borderRadius: 6, position: "relative", transition: "color .2s", letterSpacing: 0.3 },
   navUnderline: { position: "absolute", bottom: 2, left: "50%", transform: "translateX(-50%)", width: 4, height: 4, borderRadius: "50%", background: "#7ee8c8" },
@@ -266,7 +407,6 @@ const styles = {
   heroContent: { position: "relative", zIndex: 2, maxWidth: 600 },
   heroEyebrow: { fontSize: 12, letterSpacing: 4, color: "#7ee8c8", textTransform: "uppercase", marginBottom: 16, fontWeight: 600 },
   heroName: { fontFamily: "'DM Serif Display', serif", fontSize: "clamp(64px, 10vw, 112px)", lineHeight: 1, fontWeight: 400, margin: "0 0 24px", letterSpacing: -3, color: "#fff" },
-  accent: { color: "#7ee8c8" },
   heroSub: { fontSize: 17, lineHeight: 1.7, color: "rgba(255,255,255,0.6)", marginBottom: 32 },
   heroBadges: { display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 36 },
   badge: { fontSize: 11, padding: "5px 12px", borderRadius: 20, background: "rgba(126,232,200,0.1)", border: "1px solid rgba(126,232,200,0.3)", color: "#7ee8c8", letterSpacing: 0.5, fontWeight: 600 },
@@ -324,6 +464,13 @@ const styles = {
   contactValue: { fontSize: 14, color: "#7ee8c8", textDecoration: "none", fontWeight: 600, wordBreak: "break-all" },
   footer: { borderTop: "1px solid rgba(255,255,255,0.06)", padding: "24px 8%", textAlign: "center" },
   footerText: { fontSize: 12, color: "rgba(255,255,255,0.25)" },
+  drawWrap: { borderRadius: 20, background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.08)", overflow: "hidden" },
+  drawHeader: { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "14px 20px", borderBottom: "1px solid rgba(255,255,255,0.06)" },
+  drawStatus: { fontSize: 12, color: "rgba(255,255,255,0.45)", display: "flex", alignItems: "center", gap: 6 },
+  onlineDot: { width: 7, height: 7, borderRadius: "50%", background: "#7ee8c8", display: "inline-block", animation: "pulse 2s infinite" },
+  clearBtn: { fontSize: 11, padding: "5px 14px", borderRadius: 6, background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.12)", color: "rgba(255,255,255,0.6)", cursor: "pointer" },
+  canvas: { display: "block", width: "100%", height: 320, cursor: "crosshair", background: "rgba(0,0,0,0.25)", touchAction: "none" },
+  drawHint: { fontSize: 12, color: "rgba(255,255,255,0.25)", padding: "10px 20px" },
 };
 
 const css = `
