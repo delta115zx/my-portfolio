@@ -304,7 +304,7 @@ export default function Portfolio() {
               ))}
             </div>
             <div style={styles.archFlow} className="mt8">
-              {["OpenLayers", "→", "상권 에이전트", "→", "Azure PostgreSQL"].map((n, i) => (
+              {["OpenLayers", "→", "상권 에이전트", "→", "OracleDB → PostgreSQL"].map((n, i) => (
                 <span key={i} style={n === "→" ? styles.arrow : styles.archNode}>{n}</span>
               ))}
             </div>
@@ -313,7 +313,7 @@ export default function Portfolio() {
             <p style={styles.archLabel}>담당 기여</p>
             <ul style={styles.roleList}>
               {["행정 RAG: 창업 절차 문서 Azure AI Search 인덱싱 및 파이프라인 설계",
-                "상권 분석 에이전트: PostgreSQL 상권 데이터 쿼리 및 업종별 분석 로직",
+                "상권 분석 에이전트: OracleDB 기반 상권 데이터 쿼리 및 업종별 분석 로직 개발 (Azure 배포 시 팀원이 PostgreSQL로 전환)",
                 "지도 연동: OpenLayers + 상권 분석 에이전트 결과 시각화",
                 "에이전트 프레임워크 전환: Copilot Studio → Semantic Kernel (AgentGroupChat)",
                 "성능 최적화: 응답 시간 40초 → 10초대 단축"].map((r) => (
