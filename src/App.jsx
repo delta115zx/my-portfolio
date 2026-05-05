@@ -112,7 +112,13 @@ function DrawingBoard() {
   const getPos = (e, canvas) => {
     const rect = canvas.getBoundingClientRect();
     const src = e.touches ? e.touches[0] : e;
-    return { x: src.clientX - rect.left, y: src.clientY - rect.top };
+    // CSS 렌더 크기와 캔버스 픽셀 크기 비율 보정 (width:"100%" 로 인한 좌표 어긋남 해결)
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+    return {
+      x: (src.clientX - rect.left) * scaleX,
+      y: (src.clientY - rect.top) * scaleY,
+    };
   };
 
   const startDraw = (e) => {
@@ -233,7 +239,7 @@ export default function Portfolio() {
             ))}
             <LiveVisitorBadge />
           </div>
-          <a href="mailto:delta115zx@naver.com" style={styles.heroBtn} className="fadeUp d5">연락하기</a>
+          <button onClick={() => sectionRefs.current.contact?.scrollIntoView({ behavior: "smooth", block: "start" })} style={styles.heroBtn} className="fadeUp d5">연락하기</button>
         </div>
         <div style={styles.heroDecor}>
           <div style={styles.ring1} className="spin" />
@@ -410,7 +416,7 @@ const styles = {
   heroSub: { fontSize: 17, lineHeight: 1.7, color: "rgba(255,255,255,0.6)", marginBottom: 32 },
   heroBadges: { display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 36 },
   badge: { fontSize: 11, padding: "5px 12px", borderRadius: 20, background: "rgba(126,232,200,0.1)", border: "1px solid rgba(126,232,200,0.3)", color: "#7ee8c8", letterSpacing: 0.5, fontWeight: 600 },
-  heroBtn: { display: "inline-block", padding: "14px 32px", background: "#7ee8c8", color: "#0a0a0e", borderRadius: 8, fontSize: 14, fontWeight: 700, textDecoration: "none", letterSpacing: 0.5, transition: "opacity .2s" },
+  heroBtn: { display: "inline-block", padding: "14px 32px", background: "#7ee8c8", color: "#0a0a0e", borderRadius: 8, fontSize: 14, fontWeight: 700, textDecoration: "none", letterSpacing: 0.5, transition: "opacity .2s", border: "none", cursor: "pointer" },
   heroDecor: { position: "absolute", right: "8%", top: "50%", transform: "translateY(-50%)", width: 360, height: 360 },
   ring1: { position: "absolute", inset: 0, borderRadius: "50%", border: "1px solid rgba(126,232,200,0.15)" },
   ring2: { position: "absolute", inset: 40, borderRadius: "50%", border: "1px dashed rgba(126,232,200,0.1)" },
